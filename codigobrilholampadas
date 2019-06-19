@@ -1,0 +1,124 @@
+Serial.println(F("Projeto TCC Clayson Parga"));//Bibliotecas Utilizadas para o Projeto 
+#include <ESP8266WiFi.h>
+#include "Adafruit_MQTT.h"
+#include "Adafruit_MQTT_Client.h"
+
+/************************* Parametros de entrada da Rede Wifi *********************************/
+
+#define WLAN_SSID       "NOME DA REDE WIFI"
+#define WLAN_PASS       "SENHA DA REDE WIFI"
+
+/************************* Parametros de configuração do servidor MQTT, que neste projeto é o gBridge *********************************/
+
+#define AIO_SERVER      "mqtt.gbridge.io" // Nome do Servidor "My Account" gBridge
+#define AIO_SERVERPORT  1883                   // Porta padrão é 1883 e se for SSL utilizar 8883 
+#define AIO_USERNAME    "USUARIO" // Nome do Usuário "My Account" gBridge
+#define AIO_KEY         "SENHA" // Senha definida "My Account" gBridge
+
+// Criação da classe Wifi cliente para ESP8266 se conectar ao servidor MQTT
+WiFiClient client;
+
+
+// Setup the MQTT client class by passing in the WiFi client and MQTT server and login details.
+Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
+
+/****************************** Feeds ***************************************/
+
+
+Adafruit_MQTT_Publish defValor = Adafruit_MQTT_Publish(&mqtt, "gBridge/u1664/d5544/brightness/set"); no da publicação(publisher) no gBridge
+Adafruit_MQTT_Subscribe brilhoLed = Adafruit_MQTT_Subscribe(&mqtt, "gBridge/u1664/d5544/brightness"); nome da inscrição(subscriber) no gBridge
+
+/*************************** Codigo ************************************/
+
+void MQTT_connect();
+
+
+uint8_t pinoSaida = 4; //Definição de qual saida GPIO será a saida de tensão
+uint16_t defAdcValor = 0;
+uint16_t valorBrilhoLed = 0;
+
+
+void setup() {
+  Serial.begin(115200);
+  delay(10);
+
+  Serial.println(F("Sistema Inligente de Controle de Lampadas "));
+  Serial.println(F("Autor Clayson Parga"));
+
+  // Inicio da conexão Wifi
+  Serial.println(); Serial.println();
+  Serial.print("Conectando a Rede: ");
+  Serial.println(WLAN_SSID);
+
+  WiFi.begin(WLAN_SSID, WLAN_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  Serial.println("Conectado a Rede WiFi");
+  Serial.println("Seu endereço de IP é: "); Serial.println(WiFi.localIP());
+
+  // Configuração do servidor MQTT para definição do brilho do led
+  mqtt.subscribe(&brilhoLed);
+}
+
+void loop() {
+  // Primeiro verificar se a conexão com servidor MQTT está ativa
+  // Segundo se a conexão for perdida o sistema automaticamente reconecta com o servidor MQTT
+  // Definição das funções abaixo
+  MQTT_connect();
+
+  Adafruit_MQTT_Subscribe *subscription;
+  while ((subscription = mqtt.readSubscription(3000))) {
+    if (subscription == &brilhoLed) {
+      Serial.print(F("O brilho atual foi definido para: "));
+      valorBrilhoLed = atoi((char *)brilhoLed.lastread);
+      Serial.println(valorBrilhoLed);
+      analogWrite(pinoSaida, valorBrilhoLed);
+    }
+  }
+
+  // Configuração de Publicação//
+  uint16_t AdcValor = valorBrilhoLed;
+  if(AdcValor != defAdcValor){
+  defAdcValor = AdcValor;
+    Serial.print(F("Enviando valor do Brilho em "));
+   Serial.print(AdcValor);
+   Serial.print("...");
+    if (! defValor.publish(AdcValor)) {
+   Serial.println(F("Falhou"));
+    } else {
+   Serial.println(F("OK!"));
+    }
+  }
+ }
+
+  
+// Função de conexão e reconexão quando necessário do servidor MQTT.
+// A função é chamada por meio do loop.
+void MQTT_connect() {
+  int8_t ret;
+
+  // Parar se já estiver conectado
+  if (mqtt.connected()) {
+    return;
+  }
+
+  Serial.print("Conectando ao servidor MQTT... ");
+
+  uint8_t retries = 3;
+  while ((ret = mqtt.connect()) != 0) { // se a conexção retornar 0 considerar connectado
+       Serial.println(mqtt.connectErrorString(ret));
+       Serial.println("Tentando reconectar ao servidor MQTT em cinco segundos...");
+       mqtt.disconnect();
+       delay(5000);  // Aguardar 5 segundos
+       retries--;
+       if (retries == 0) {
+         // Se o dispositivo travar, deve-se aguardar que ele seja reiniciado.
+         while (1);
+       }
+  }
+  Serial.println("Conectado ao Servidor MQTT!");
+}
