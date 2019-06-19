@@ -1,0 +1,163 @@
+/************************* Projeto Sistema Inteligente de Controle de Lampadas *********************************/
+/******************************************** UNIFAMETRO *******************************************************/
+/*************************************** Autor: Clayson Parga **************************************************/
+//Bibliotecas Utilizadas para o Projeto 
+#include <ESP8266WiFi.h>
+#include "Adafruit_MQTT.h"
+#include "Adafruit_MQTT_Client.h"
+
+/************************* Parametros de entrada da Rede Wifi *********************************/
+
+#define WLAN_SSID       "MikroParga" //Nome da Rede Wifi
+#define WLAN_PASS       "101435jl" //Senha da Rede Wifi
+
+/************************* Parametros de configuração do servidor MQTT, que neste projeto é o gBridge *********************************/
+
+#define AIO_SERVER      "mqtt.gbridge.io" // Nome do Servidor "My Account" gBridge
+#define AIO_SERVERPORT  1883                   // Porta padrão é 1883 e se for SSL utilizar 8883 
+#define AIO_USERNAME    "gbridge-u1010" // Nome do Usuário "My Account" gBridge
+#define AIO_KEY         "12345678" // Senha definida "My Account" gBridge
+
+//Declaração das variaveis 
+char outputState = 0;
+char lastState = 0;
+
+/************ Global State (you don't need to change this!) ******************/
+
+// Create an ESP8266 WiFiClient class to connect to the MQTT server.
+WiFiClient client;
+
+// Configuração da classe do cliente MQTT, que passa pelo cliente WiFi e o servidor MQTT com os detalhes de login.
+Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
+/****************************** Feeds ***************************************/
+
+Adafruit_MQTT_Publish onoffset = Adafruit_MQTT_Publish(&mqtt, "gBridge/u341/d984/onoff/set");  // Colocar o topico Publisher do acionamento do gBridge (SET)
+Adafruit_MQTT_Subscribe onoffbutton = Adafruit_MQTT_Subscribe(&mqtt, "gBridge/u341/d984/onoff"); /// Colocar o topico Subscriber do acionamento do gBridge
+
+/*************************** Desenvolvimento ************************************/
+
+
+void MQTT_connect();
+
+void setup() {
+  Serial.begin(115200);
+  delay(10);
+
+  Serial.println(F("Controle de Acionamento de Lâmpadas - gBridge"));
+
+  pinMode(LED_BUILTIN, OUTPUT);     // Inicialização LED_BUILTIN 
+  digitalWrite(LED_BUILTIN, HIGH);
+  pinMode(0, INPUT_PULLUP); Definição de qual pino GPIO será a saida 
+  
+  attachInterrupt(digitalPinToInterrupt(0), handleInterrupt, FALLING);
+  // Connect to WiFi access point.
+  Serial.println(); Serial.println();
+  Serial.print("Conectando a Rede: ");
+  Serial.println(WLAN_SSID);
+
+  WiFi.begin(WLAN_SSID, WLAN_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  Serial.println("Conectado a Rede WiFi");
+  Serial.println("Seu endereço de IP é: "); Serial.println(WiFi.localIP());
+  
+  // Configuração da inscrição para LIGAR E DESLIGAR a LAMPADA
+  mqtt.subscribe(&onoffbutton);
+}
+
+uint32_t x=0;
+
+void loop() {
+  // Primeiro verificar se a conexão com servidor MQTT está ativa
+  // Segundo se a conexão for perdida o sistema automaticamente reconecta com o servidor MQTT
+  // Definição das funções abaixo
+  MQTT_connect();
+  
+
+
+  Adafruit_MQTT_Subscribe *subscription;
+  while ((subscription = mqtt.readSubscription(3000))) {
+    if (subscription == &onoffbutton) {
+      Serial.print(F("Status da Lampada:"));
+      Serial.println((char *)onoffbutton.lastread);
+      if (strcmp((char *)onoffbutton.lastread, "1") == 0) {
+        digitalWrite(LED_BUILTIN, LOW); 
+        outputState = 1;
+      }
+      if (strcmp((char *)onoffbutton.lastread, "0") == 0) {
+        digitalWrite(LED_BUILTIN, HIGH);
+        outputState = 0;
+      }
+    }
+
+  }
+  
+ // Envio de valor do status para o servidor MQTT
+  if (outputState != lastState) {
+    lastState = outputState;
+    Serial.print(F("\Enviando status, valor: "));
+    Serial.print(outputState, BIN);
+    Serial.print("...");
+    if (! onoffset.publish(outputState)) {
+      Serial.println(F("Falhou"));
+    } else {
+      Serial.println(F("OK!"));
+    }
+  }
+
+  // Pingar no servidor para manter a conexão mqtt 
+  // Não é necessário já estiver publicando uma vez a cada envio
+/*
+  if(! mqtt.ping()) {
+    mqtt.disconnect();
+  }
+  */
+}
+
+void handleInterrupt() {
+ static unsigned long last_interrupt_time = 0;
+ unsigned long interrupt_time = millis();
+  if (interrupt_time - last_interrupt_time > 200) 
+ {
+  if (outputState == 0) {
+    outputState = 1;
+    digitalWrite(LED_BUILTIN, LOW);
+  }
+  else {
+    outputState = 0;
+    digitalWrite(LED_BUILTIN, HIGH);
+  }
+   }
+ last_interrupt_time = interrupt_time;
+}
+
+   // Função de conexão e reconexão quando necessário do servidor MQTT.
+   // A função é chamada por meio do loop.
+void MQTT_connect() {
+  int8_t ret;
+
+  // Parar se já estiver conectado
+  if (mqtt.connected()) {
+    return;
+  }
+
+  Serial.print(" Conectando ao servidor MQTT...");
+
+  uint8_t retries = 3;
+  while ((ret = mqtt.connect()) != 0) { // connect will return 0 for connected
+       Serial.println(mqtt.connectErrorString(ret));
+       Serial.println("Reconectando servidor MQTT em cinco segundos...");
+       mqtt.disconnect();
+       delay(5000);  //  Aguardar 5 segundos
+       retries--;
+       if (retries == 0) {
+         // Se o dispositivo travar, deve-se aguardar que ele seja reiniciado.
+         while (1);
+       }
+  }
+  Serial.println("Conectado ao Servidor MQTT!");
+}
