@@ -1,0 +1,123 @@
+//Bibliotecas Utilizadas para o Projeto do Sistema inteligente de controle de lampadas
+#include <ESP8266WiFi.h>
+#include "Adafruit_MQTT.h"
+#include "Adafruit_MQTT_Client.h"
+
+/************************* Parametros de entrada da Rede Wifi *********************************/
+
+#define WLAN_SSID       "Nome da Rede WIFI"
+#define WLAN_PASS       "Senha da Rede WIFI"
+
+/************************* Parametros de configuração do servidor MQTT, que neste projeto é o gBridge *********************************/
+
+#define AIO_SERVER      "mqtt.gbridge.io" // Nome do Servidor "My Account" gBridge
+#define AIO_SERVERPORT  1883                   // Porta padrão é 1883 e se for TLS utilizar 8883 
+#define AIO_USERNAME    "NOME DO SERVIDOR" // Nome do Usuário "My Account" gBridge
+#define AIO_KEY         "SENHA DO SERVIDOR" // Senha definida "My Account" gBridge
+
+// Criação da classe Wifi cliente para ESP8266 se conectar ao servidor MQTT
+WiFiClient client;
+
+
+// Classes de configuração do MQTT.
+Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
+
+/******************************Inscrições***************************************/
+
+
+Adafruit_MQTT_Publish defValor = Adafruit_MQTT_Publish(&mqtt, "gBridge/u1664/d5544/brightness/set"); //Tópico "SET" de brilho do gBridge(Pode ser visto na aba "DEVICES")
+Adafruit_MQTT_Subscribe brilhoLed = Adafruit_MQTT_Subscribe(&mqtt, "gBridge/u1664/d5544/brightness");//Tópico de inscrição de brilho do gBridge(Pode ser visto na aba "DEVICES")
+
+/*************************** Codigo ************************************/
+
+void MQTT_connect();
+
+
+uint8_t pinoSaida = 4; //Definição qual saida GPIO será a saida de tensão para o LED
+uint16_t defAdcValor = 0;
+uint16_t valorBrilhoLed = 0;
+
+void setup() {
+  Serial.begin(115200);
+  delay(10);
+
+  Serial.println(F("Artigo Clayson Parga"));
+
+  // Inicio da conexão Wifi
+  Serial.println(); Serial.println();
+  Serial.print("Conectando a Rede: ");
+  Serial.println(WLAN_SSID);
+
+  WiFi.begin(WLAN_SSID, WLAN_PASS);
+  while (WiFi.status() != WL_CONNECTED) {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println();
+
+  Serial.println("Conectado a Rede WiFi");
+  Serial.println("Seu endereço de IP é: "); Serial.println(WiFi.localIP());
+
+  // Configuração do servidor MQTT para definição do brilho do led
+  mqtt.subscribe(&brilhoLed);
+}
+
+void loop() {
+  // Primeiro verificar se a conexão com servidor MQTT está ativa
+  // Segundo se a conexão for perdida o sistema automaticamente reconecta com o servidor MQTT
+  // Definição das funções abaixo
+  MQTT_connect();
+
+  Adafruit_MQTT_Subscribe *subscription;
+  while ((subscription = mqtt.readSubscription(3000))) {
+    if (subscription == &brilhoLed) {
+      Serial.print(F("O brilho atual foi definido para: "));
+      valorBrilhoLed = atoi((char *)brilhoLed.lastread);
+      Serial.println(valorBrilhoLed);
+      analogWrite(pinoSaida, valorBrilhoLed);
+    }
+  }
+
+  // Configuração de Publicação//
+ // Esta configuração é a responsável por enviar os dados do STATUS atual da lampada
+  uint16_t AdcValor = valorBrilhoLed;
+  if(AdcValor != defAdcValor){
+  defAdcValor = AdcValor;
+    Serial.print(F("Enviando valor do Brilho em "));
+   Serial.print(AdcValor);
+   Serial.print("...");
+    if (! defValor.publish(AdcValor)) {
+   Serial.println(F("Falhou"));
+    } else {
+   Serial.println(F("OK!"));
+    }
+  }
+ }
+
+
+// Função de conexão e reconexão quando necessário do servidor MQTT.
+// A função é chamada por meio do loop.
+void MQTT_connect() {
+  int8_t ret;
+
+  // Parar se já estiver conectado
+  if (mqtt.connected()) {
+    return;
+  }
+
+  Serial.print("Conectando ao servidor MQTT... ");
+
+  uint8_t retries = 3;
+  while ((ret = mqtt.connect()) != 0) { // se a conexção retornar 0 considerar connectado
+       Serial.println(mqtt.connectErrorString(ret));
+       Serial.println("Reconectando em cinco segundos no servidor MQTT...");
+       mqtt.disconnect();
+       delay(5000);  // Aguardar 5 segundos
+       retries--;
+       if (retries == 0) {
+         // Se o dispositivo travar, deve-se aguardar que ele seja reiniciado.
+         while (1);
+       }
+  }
+  Serial.println("Conectado ao Servidor MQTT!");
+}
