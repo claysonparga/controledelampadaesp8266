@@ -31,11 +31,11 @@ WiFiClient client;
 Adafruit_MQTT_Client mqtt(&client, AIO_SERVER, AIO_SERVERPORT, AIO_USERNAME, AIO_KEY);
 /****************************** Feeds ***************************************/
 
-Adafruit_MQTT_Publish onoffset = Adafruit_MQTT_Publish(&mqtt, "gBridge/u341/d984/onoff/set");  // Colocar o topico Publisher do acionamento do gBridge (SET)
-Adafruit_MQTT_Subscribe onoffbutton = Adafruit_MQTT_Subscribe(&mqtt, "gBridge/u341/d984/onoff"); /// Colocar o topico Subscriber do acionamento do gBridge
+Adafruit_MQTT_Publish onoffset = Adafruit_MQTT_Publish(&mqtt, "gBridge/u1010/d6013/onoff/set");  // Colocar o topico Publisher do acionamento do gBridge (SET)
+Adafruit_MQTT_Subscribe onoffbutton = Adafruit_MQTT_Subscribe(&mqtt, "gBridge/u1010/d6013/onoff"); /// Colocar o topico Subscriber do acionamento do gBridge
 
 /*************************** Desenvolvimento ************************************/
-
+#define LED 4 //Definição do pino de saida do dispositivo
 
 void MQTT_connect();
 
@@ -45,11 +45,10 @@ void setup() {
 
   Serial.println(F("Controle de Acionamento de Lâmpadas - gBridge"));
 
-  pinMode(LED_BUILTIN, OUTPUT);     // Inicialização LED_BUILTIN 
-  digitalWrite(LED_BUILTIN, HIGH);
-  pinMode(0, INPUT_PULLUP); Definição de qual pino GPIO será a saida 
+  pinMode(LED, OUTPUT);     // Inicialização LED_BUILTIN 
+  digitalWrite(LED, LOW); //definição do estado inicial da saida definida
   
-  attachInterrupt(digitalPinToInterrupt(0), handleInterrupt, FALLING);
+
   // Connect to WiFi access point.
   Serial.println(); Serial.println();
   Serial.print("Conectando a Rede: ");
@@ -85,11 +84,11 @@ void loop() {
       Serial.print(F("Status da Lampada:"));
       Serial.println((char *)onoffbutton.lastread);
       if (strcmp((char *)onoffbutton.lastread, "1") == 0) {
-        digitalWrite(LED_BUILTIN, LOW); 
+        digitalWrite(LED, HIGH); 
         outputState = 1;
       }
       if (strcmp((char *)onoffbutton.lastread, "0") == 0) {
-        digitalWrite(LED_BUILTIN, HIGH);
+        digitalWrite(LED, LOW);
         outputState = 0;
       }
     }
@@ -97,42 +96,18 @@ void loop() {
   }
   
  // Envio de valor do status para o servidor MQTT
-  if (outputState != lastState) {
-    lastState = outputState;
-    Serial.print(F("\Enviando status, valor: "));
-    Serial.print(outputState, BIN);
+uint16_t AdcValor = outputState;
+  if (AdcValor != lastState) {
+    lastState = AdcValor;
+    Serial.print(F("publicando status, valor: "));
+    Serial.print(AdcValor);
     Serial.print("...");
-    if (! onoffset.publish(outputState)) {
+    if (! onoffset.publish(AdcValor)) {
       Serial.println(F("Falhou"));
     } else {
       Serial.println(F("OK!"));
     }
   }
-
-  // Pingar no servidor para manter a conexão mqtt 
-  // Não é necessário já estiver publicando uma vez a cada envio
-/*
-  if(! mqtt.ping()) {
-    mqtt.disconnect();
-  }
-  */
-}
-
-void handleInterrupt() {
- static unsigned long last_interrupt_time = 0;
- unsigned long interrupt_time = millis();
-  if (interrupt_time - last_interrupt_time > 200) 
- {
-  if (outputState == 0) {
-    outputState = 1;
-    digitalWrite(LED_BUILTIN, LOW);
-  }
-  else {
-    outputState = 0;
-    digitalWrite(LED_BUILTIN, HIGH);
-  }
-   }
- last_interrupt_time = interrupt_time;
 }
 
    // Função de conexão e reconexão quando necessário do servidor MQTT.
@@ -161,3 +136,4 @@ void MQTT_connect() {
   }
   Serial.println("Conectado ao Servidor MQTT!");
 }
+
